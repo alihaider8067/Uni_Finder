@@ -78,6 +78,7 @@ export default function HostelReviewDashboard({ reviewer, campus, onQueueChange 
     }
   }, [onQueueChange]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- initial queue fetch
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
@@ -164,8 +165,8 @@ export default function HostelReviewDashboard({ reviewer, campus, onQueueChange 
         <h1 className="text-3xl font-bold text-slate-800">Hostels</h1>
         <p className="mt-1 text-slate-500">
           {reviewer === "campus"
-            ? `Review hostel registration requests for ${campus?.name || "your campus"}.`
-            : "Review independent hostel registrations and their verification documents."}
+            ? `Review hostel registration requests for ${campus?.name || "your campus"}. Approved hostels are forwarded to the super admin.`
+            : "Review private hostels and campus hostels forwarded by campus admins, with their verification documents."}
         </p>
       </header>
 
@@ -273,6 +274,15 @@ export default function HostelReviewDashboard({ reviewer, campus, onQueueChange 
                 </section>
               )}
 
+              {reviewer === "admin" &&
+                selected.hostel_type === "university" &&
+                selected.status === "pending_admin" && (
+                  <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">
+                    Approved by the campus admin. Your final approval unlocks the
+                    owner dashboard.
+                  </p>
+                )}
+
               <section className="rounded-xl border border-slate-100 bg-slate-50 p-4">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Rooms</p>
                 <p className="mt-1 text-sm text-slate-700">
@@ -339,7 +349,11 @@ export default function HostelReviewDashboard({ reviewer, campus, onQueueChange 
                 <>
                   <button disabled={busy} onClick={() => review(selected, "rejected")} className="rounded-xl border border-red-200 px-4 py-2.5 text-sm font-semibold text-red-600 disabled:opacity-50">Reject</button>
                   <button disabled={busy} onClick={() => review(selected, "approved")} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
-                    {busy ? "Saving..." : "Approve & unlock dashboard"}
+                    {busy
+                      ? "Saving..."
+                      : reviewer === "campus"
+                        ? "Approve & forward to super admin"
+                        : "Approve & unlock dashboard"}
                   </button>
                 </>
               )}

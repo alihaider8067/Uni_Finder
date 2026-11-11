@@ -8,7 +8,7 @@ import google from "../assets/google.png";
 // import facebook from "../assets/facebook.png";
 import { useAuth } from "../context/AuthContext";
 import { setFlash } from "../utils/flash";
-import { API, forgotPassword as forgotPasswordApi } from "../api/client";
+import { API, forgotPassword as forgotPasswordApi, resendVerificationEmail } from "../api/client";
 
 function Login() {
   const navigate = useNavigate();
@@ -20,6 +20,8 @@ function Login() {
   const [forgotEmail, setForgotEmail] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState("");
+  const [resendState, setResendState] = useState({ sending: false, message: "" });
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -128,6 +130,9 @@ function Login() {
         } else {
           navigate("/homepage", { replace: true });
         }
+      } else if (res.status === 403 && data.verificationRequired) {
+        setUnverifiedEmail(formData.email.trim().toLowerCase());
+        setResendState({ sending: false, message: "" });
       } else {
         toast.error(data.message || "Invalid email or password");
       }
@@ -136,6 +141,22 @@ function Login() {
       toast.error("Server error ");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setResendState({ sending: true, message: "" });
+    try {
+      const { data } = await resendVerificationEmail(unverifiedEmail);
+      setResendState({
+        sending: false,
+        message: data.message || "If an unverified account exists, a verification email will be sent.",
+      });
+    } catch (error) {
+      setResendState({
+        sending: false,
+        message: error.message || "Could not reach the server. Please try again.",
+      });
     }
   };
 
@@ -172,7 +193,7 @@ function Login() {
     <div className="fixed top-0 left-0 w-full h-screen flex justify-center items-center p-4 bg-gray-100">
       <div className="relative flex w-[1000px] min-h-[560px] max-w-[95%] max-h-[94vh] bg-white rounded-[40px] overflow-hidden shadow-[0_15px_40px_rgba(0,0,0,0.15)]">
         <div className="relative w-full md:w-1/2 px-5 md:px-[50px] py-8 md:py-[40px] flex flex-col justify-center overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
-          <div className="flex items-center gap-2 mb-3">
+          <div  onClick={() => navigate('/')}  className="flex items-center gap-2 mb-3">
             <img src={logo} alt="Uni Finder Logo" className="w-8" />
             <h2 className="text-xl font-semibold text-gray-700">
               Uni <span className="text-orange-500">Finder</span>
@@ -242,6 +263,24 @@ function Login() {
                 </p>
               )}
             </div>
+
+            {unverifiedEmail && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-xs text-amber-800">
+                <p className="font-semibold">Verify your email first</p>
+                <p className="mt-1 break-all">
+                  {unverifiedEmail} is not verified yet. Open the link we mailed you, or resend it below.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={resendState.sending}
+                  className="mt-2 font-semibold text-orange-600 hover:underline disabled:opacity-60"
+                >
+                  {resendState.sending ? "Sending..." : "Resend verification email"}
+                </button>
+                {resendState.message && <p className="mt-1 text-amber-700">{resendState.message}</p>}
+              </div>
+            )}
 
             <div className="text-right">
               <button

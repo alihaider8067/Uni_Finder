@@ -9,21 +9,10 @@ import HostelOwnerLayout, {
 import OverviewSection from "../../components/hostelOwner/OverviewSection";
 import ProfileSection from "../../components/hostelOwner/ProfileSection";
 import ListingSection from "../../components/hostelOwner/ListingSection";
-import StatusSection from "../../components/hostelOwner/StatusSection";
+import ListingPreviewSection from "../../components/hostelOwner/ListingPreviewSection";
+import { API } from "../../api/client";
 
-const API = "http://localhost:5000";
-const emptyOverview = {
-  status: "under_review",
-  roomsListed: 0,
-  roomTypes: 0,
-  seatsAvailable: 0,
-  totalSeats: 0,
-  setup: [
-    { id: "profile", label: "Hostel profile details", done: false, nav: "profile" },
-    { id: "rooms", label: "Room inventory and pricing", done: false, nav: "listing" },
-    { id: "location", label: "Hostel location", done: false, nav: "profile" },
-  ],
-};
+const emptyDetails = { profile: {}, rooms: [], listing: null, photos: [] };
 
 export default function HostelOwnerDashboard() {
   const [active, setActive] = useState("overview");
@@ -31,7 +20,8 @@ export default function HostelOwnerDashboard() {
   const [selectedHostelId, setSelectedHostelId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [overview, setOverview] = useState(emptyOverview);
+  const [details, setDetails] = useState(emptyDetails);
+  const [completion, setCompletion] = useState(null);
   const [campuses, setCampuses] = useState([]);
   const [ownerName, setOwnerName] = useState("Hostel Owner");
 
@@ -109,59 +99,65 @@ export default function HostelOwnerDashboard() {
 
   useEffect(() => {
     if (!selectedHostel) return;
+
     let cancelled = false;
     const token = sessionStorage.getItem("token");
     const headers = { Authorization: `Bearer ${token}` };
-    Promise.all([
-      fetch(`${API}/api/hostels/${selectedHostel.id}/profile`, { headers }).then((res) => res.json()),
-      fetch(`${API}/api/hostels/${selectedHostel.id}/rooms`, { headers }).then((res) => res.json()),
-    ]).then(([profileData, roomsData]) => {
-      if (cancelled) return;
-      const profile = profileData.profile || {};
-      const rooms = Array.isArray(roomsData.rooms) ? roomsData.rooms : [];
-      const totalRooms = rooms.reduce((sum, room) => sum + Number(room.total_rooms || 0), 0);
-      const totalSeats = rooms.reduce((sum, room) => sum + Number(room.total_rooms || 0) * Number(room.beds_per_room || 0), 0);
-      const profileFields = [
-        profile.name,
-        profile.about,
-        profile.gender,
-        profile.address,
-        profile.nearby_distance,
-        profile.lat != null && profile.lng != null,
-        profile.floors,
-        profile.owner_name,
-        profile.owner_contact,
-        profile.warden_name,
-        profile.warden_contact,
-        ...(campusHostel ? [profile.campus_id] : []),
-      ];
-      const filledProfileFields = profileFields.filter((value) =>
-        typeof value === "boolean" ? value : String(value ?? "").trim() !== ""
-      ).length;
-      const profileCompleteness = Math.round((filledProfileFields / profileFields.length) * 100);
-      setOwnerName(profile.owner_name || user.name || user.full_name || "Hostel Owner");
-      setOverview({
-        status: selectedHostel.status === "rejected"
-          ? "rejected"
-          : selectedHostel.status === "approved" ? "approved" : "under_review",
-        reviewerLabel: campusHostel
-          ? `the campus admin of ${selectedHostel.campus_name || "your campus"}`
-          : "the UniFinder super admin",
-        rejectionReason: selectedHostel.review_reason || "",
-        completeness: profileCompleteness,
-        roomsListed: totalRooms,
-        roomTypes: new Set(rooms.map((room) => room.room_type)).size,
-        seatsAvailable: rooms.reduce((sum, room) => sum + Number(room.available_beds || 0), 0),
-        totalSeats,
-        setup: [
-          { id: "profile", label: "Hostel profile details", done: profileCompleteness === 100, nav: "profile" },
-          { id: "rooms", label: "Room inventory and pricing", done: rooms.length > 0, nav: "listing" },
-          { id: "location", label: "Hostel location", done: Boolean(profile.address && profile.lat != null && profile.lng != null), nav: "profile" },
-        ],
-      });
-    }).catch((err) => setError(err.message || "Could not load dashboard details."));
+    const base = `${API}/api/hostels/${selectedHostel.id}`;
+
+    const loadDetails = async () => {
+      try {
+        const [profileRes, roomsRes, listingRes, photosRes, completionRes] =
+          await Promise.all([
+            fetch(`${base}/profile`, { headers }).then((res) => res.json()),
+            fetch(`${base}/rooms`, { headers }).then((res) => res.json()),
+            fetch(`${base}/listing`, { headers }).then((res) => res.json()),
+            fetch(`${base}/photos`, { headers }).then((res) => res.json()),
+            fetch(`${base}/completion`, { headers }).then((res) => res.json()),
+          ]);
+
+        if (cancelled) return;
+
+        const profile = profileRes.profile || {};
+        setOwnerName(profile.owner_name || user.name || user.full_name || "Hostel Owner");
+        setDetails({
+          profile,
+          rooms: Array.isArray(roomsRes.rooms) ? roomsRes.rooms : [],
+          listing: listingRes.listing || null,
+          photos: Array.isArray(photosRes.photos) ? photosRes.photos : [],
+        });
+        setCompletion(completionRes.completion || null);
+      } catch (err) {
+        if (!cancelled) setError(err.message || "Could not load dashboard details.");
+      }
+    };
+
+    loadDetails();
     return () => { cancelled = true; };
-  }, [active, campusHostel, selectedHostel, user]);
+  }, [active, selectedHostel, user]);
+
+  const effectiveCompletion = completion || selectedHostel?.completion || null;
+  const overview = {
+    status: effectiveCompletion?.displayStatus || "pending_approval",
+    approvalStatus:
+      effectiveCompletion?.approvalStatus || selectedHostel?.status || "pending_admin",
+    reviewerLabel:
+      (effectiveCompletion?.approvalStatus || selectedHostel?.status) ===
+      "pending_campus"
+        ? `the campus admin of ${selectedHostel?.campus_name || "your campus"}`
+        : "the UniFinder super admin",
+    rejectionReason: selectedHostel?.review_reason || "",
+    completeness: effectiveCompletion?.completeness ?? 0,
+    profileCompleteness: effectiveCompletion?.profileCompleteness ?? 0,
+    listingCompleteness: effectiveCompletion?.listingCompleteness ?? 0,
+    counts: effectiveCompletion?.counts || {},
+    missing: effectiveCompletion?.missing || [],
+    totalChecks:
+      (effectiveCompletion?.profileChecks?.length || 0) +
+      (effectiveCompletion?.listingChecks?.length || 0),
+    hostelType: campusHostel ? "campus" : "private",
+    campusName: selectedHostel?.campus_name || "",
+  };
 
   const handleSignOut = () => {
     sessionStorage.removeItem("token");
@@ -175,6 +171,8 @@ export default function HostelOwnerDashboard() {
       onSignOut={handleSignOut}
       owner={{ name: ownerName, hostelName: selectedHostel?.name || (campusHostel ? "Campus Hostel" : "Independent Hostel") }}
       title={`${campusHostel ? "Campus Hostel" : "Independent Hostel"} · ${title}`}
+      status={overview.status}
+      approvalStatus={overview.approvalStatus}
     >
       {loading && (
         <p className="mb-4 text-sm text-slate-500">
@@ -265,15 +263,12 @@ export default function HostelOwnerDashboard() {
               </p>
             )
           ) : (
-            <StatusSection
-              data={{
-                applicationId: selectedHostel?.id || "—",
-                status: selectedHostel?.status === "approved" ? "live" : selectedHostel?.status === "rejected" ? "rejected" : "pending",
-                currentStep: selectedHostel?.status === "approved" ? 3 : 1,
-                typeChanged: false,
-                rejectionNote: selectedHostel?.review_reason || "",
-              }}
-              initialType={campusHostel ? "campus" : "private"}
+            <ListingPreviewSection
+              hostel={selectedHostel}
+              completion={effectiveCompletion}
+              listing={details.listing}
+              photos={details.photos}
+              onNavigate={setActive}
             />
           )}
         </>

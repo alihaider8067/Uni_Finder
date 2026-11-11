@@ -58,6 +58,7 @@ import {
   listCampusesByUniversity,
   searchCampuses,
   getCampusById,
+  compareCampuses,
   getOverviewStats,
   getCampusActivity,
   listApprovedCampusHostels,
@@ -157,6 +158,7 @@ router.put   ("/campus/hostels/:hostelId/photos/:photoId/cover", ...campusAuth, 
 router.delete("/campus/hostels/:hostelId/photos/:photoId",       ...campusAuth, deleteHostelPhoto);
 
 router.get("/campuses",                           searchCampuses);
+router.get("/campuses/compare",                   compareCampuses);
 router.get("/campuses/university/:universityId",  listCampusesByUniversity);
 router.get("/campuses/:id",                       getCampusById);
 router.get("/campuses/:id/hostels",                listApprovedCampusHostels); // public: only approved

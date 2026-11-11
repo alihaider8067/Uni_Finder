@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { toast } from 'react-toastify';
 import { Clock, PencilLine, MapPin, ChevronDown } from 'lucide-react';
+import GoogleMapPreview from '../shared/GoogleMapPreview';
+import GoogleMapPicker from '../shared/GoogleMapPicker';
+
 const API = "http://localhost:5000";
 
 const VERIFICATION = {
@@ -83,9 +86,8 @@ export default function ProfileSection({
 }) {
   const [form, setForm] = useState({ ...initial, gps: "", nearbyDistance: "" });
   const [errors, setErrors] = useState({});
-  const [status, setStatus] = useState(
-    initial?.verification || "submitted"
-  );
+  const [status, setStatus] = useState(initial?.verification || "submitted");
+  const [picker, setPicker] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
   useEffect(() => {
@@ -171,26 +173,17 @@ export default function ProfileSection({
   const v = VERIFICATION[status] ?? VERIFICATION.submitted;
 
 
-
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
   const setPerson = (who, key, value) =>
     setForm((f) => ({ ...f, [who]: { ...f[who], [key]: value } }));
 
-  const useCurrentLocation = () => {
-    if (!navigator.geolocation) {
-      toast.error("Current location is not supported by this browser.");
-      return;
-    }
+  const mapParts = String(form.gps ?? "").split(",").map((part) => part.trim());
+  const mapLat = parseFloat(mapParts[0]);
+  const mapLng = parseFloat(mapParts[1]);
+  const hasMapPin = Number.isFinite(mapLat) && Number.isFinite(mapLng);
 
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        set("gps", `${coords.latitude.toFixed(7)}, ${coords.longitude.toFixed(7)}`);
-        toast.success("Current location added. Save the profile to store it.");
-      },
-      (error) => toast.error(error.message || "Could not get your current location."),
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
+  // Opens the map immediately; the picker centres itself on the GPS position.
+  const useCurrentLocation = () => setPicker("locate");
 
   const validate = () => {
     const e = {};
@@ -385,28 +378,55 @@ const handleSaveProfile = async () => {
 
           {/* Map + GPS */}
           <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-            <div
-              className="relative min-h-[260px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100"
-              style={{
-                backgroundImage:
-                  'linear-gradient(rgba(148,163,184,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,.18) 1px, transparent 1px)',
-                backgroundSize: '36px 36px',
-              }}
-            >
-              <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2">
-                <div className="grid h-12 w-12 place-items-center rounded-full bg-[#ff6a00] text-white ring-4 ring-white">
-                  <MapPin size={20} />
+            {/* Google Map preview + picker triggers */}
+            <div className="relative min-h-[260px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+              <GoogleMapPreview
+                lat={hasMapPin ? mapLat : ""}
+                lng={hasMapPin ? mapLng : ""}
+                zoom={hasMapPin ? 16 : 5}
+                className="absolute inset-0 h-full w-full"
+              />
+
+              {hasMapPin ? (
+                <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1.5 rounded-lg bg-white/95 px-3 py-1.5 text-xs font-medium shadow-sm">
+                  <MapPin size={12} className="text-[#ff6a00]" />
+                  <span>{mapLat.toFixed(5)}, {mapLng.toFixed(5)}</span>
                 </div>
-                <span className="rounded-lg bg-white px-3 py-1.5 text-xs shadow-sm">{form.gps}</span>
+              ) : (
+                <div className="pointer-events-none absolute inset-x-0 top-4 z-10 flex justify-center">
+                  <span className="rounded-lg bg-white/95 px-3 py-1.5 text-xs text-slate-500 shadow-sm">
+                    No location set — click below to pick on the map
+                  </span>
+                </div>
+              )}
+
+              <div className="absolute bottom-4 right-4 z-10 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPicker("adjust")}
+                  className="rounded-xl bg-white px-4 py-2 text-sm font-medium shadow-md transition-colors hover:bg-slate-50"
+                >
+                  {hasMapPin ? 'Adjust map pin' : 'Set on Map'}
+                </button>
+                <button
+                  type="button"
+                  onClick={useCurrentLocation}
+                  className="rounded-xl bg-white px-4 py-2 text-sm font-medium shadow-md hover:bg-slate-50"
+                >
+                  Use current location
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={useCurrentLocation}
-                className="absolute bottom-4 right-4 rounded-xl bg-white px-4 py-2 text-sm font-medium shadow-sm hover:bg-slate-50 disabled:opacity-50"
-              >
-                Use current location
-              </button>
             </div>
+
+            {picker && (
+              <GoogleMapPicker
+                lat={hasMapPin ? mapLat : ''}
+                lng={hasMapPin ? mapLng : ''}
+                autoLocate={picker === 'locate'}
+                onConfirm={(la, ln) => set('gps', `${la}, ${ln}`)}
+                onClose={() => setPicker(null)}
+              />
+            )}
 
             <div className="space-y-4">
               <Field label="Confirmed GPS Coordinates" htmlFor="h-gps" error={errors.gps}>
@@ -419,7 +439,8 @@ const handleSaveProfile = async () => {
                   value={form.floors} onChange={(e) => set('floors', e.target.value)} />
               </Field>
               <p className="rounded-xl bg-slate-50 p-4 text-xs leading-relaxed text-slate-500">
-                The coordinate shown beside the map pin is the location that will be submitted.
+                Open the map to drop a pin and drag it to the exact spot, or use your current
+                location. The chosen coordinates appear in the field above.
               </p>
             </div>
           </div>

@@ -162,7 +162,7 @@ export default function AdminDashboard() {
           id: `hostel-${hostel.id}`,
           type: "hostel",
           title: `Hostel: ${hostel.name}`,
-          description: `Pending super admin review · ${hostel.address || "Independent hostel"}`,
+          description: `Pending super admin review · ${hostel.hostel_type === "university" ? hostel.campus_name || "Campus hostel" : hostel.address || "Private hostel"}`,
           targetScreen: "hostel-approvals",
           date: hostel.created_at,
         }));
@@ -212,7 +212,7 @@ export default function AdminDashboard() {
     },
     {
       id: "hostel-approvals",
-      label: "Independent Hostels",
+      label: "Hostel Approvals",
       icon: <BedDouble size={18} />,
       badge: counts.hostels > 0 ? counts.hostels : null,
     },

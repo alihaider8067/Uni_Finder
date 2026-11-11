@@ -62,11 +62,11 @@ const sendVerificationEmail = async ({ userId, email, name, expiresAt }) => {
         "<p>Regards,<br>Uni Finder Team</p>",
     });
   } catch (error) {
-    try {
-      await queryAsync("DELETE FROM email_verification_tokens WHERE id = ?", [tokenId]);
-    } catch (cleanupError) {
-      console.error("[email verification] token cleanup failed:", cleanupError.message);
-    }
+    // Keep the token so the dev-console verification link stays usable when
+    // SMTP is down; resend issues a fresh token anyway.
+    console.error(
+      `[email verification] delivery failed for ${email}; token kept so the console link still works in dev.`,
+    );
     error.isEmailDeliveryError = true;
     throw error;
   }
@@ -85,6 +85,36 @@ const sendVerificationEmailWithRetry = async (payload, attempts = 2) => {
       if (attempt < attempts) await new Promise((r) => setTimeout(r, 1500));
     }
   }
+};
+
+const issueSession = async (user) => {
+  let universityId = null;
+  if (user.role === "university") {
+    try {
+      const rows = await queryAsync(
+        "SELECT id FROM universities WHERE owner_uid = ? LIMIT 1",
+        [user.id],
+      );
+      if (rows.length) universityId = rows[0].id;
+    } catch { /* non-fatal — university_id stays null */ }
+  }
+
+  const payload = { id: user.id, email: user.email, role: user.role };
+  if (universityId) payload.university_id = universityId;
+
+  const token = jwt.sign(payload, env.JWT_SECRET || "secretkey", { expiresIn: "1d" });
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      ...(universityId ? { university_id: universityId } : {}),
+    },
+  };
 };
 
 export const signup = (req, res) => {
@@ -167,34 +197,65 @@ export const signup = (req, res) => {
   );
 };
 
-export const verifyEmail = (req, res) => {
+export const verifyEmail = async (req, res) => {
   const { token } = req.params;
   if (typeof token !== "string" || !/^[a-f0-9]{64}$/i.test(token)) {
     return res.status(400).json({ message: "Invalid or expired verification link" });
   }
 
   const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
-  db.query(
-    `UPDATE Student_signup AS user
-     INNER JOIN email_verification_tokens AS verification
-       ON verification.user_id = user.id
-     SET user.email_verified = 1, verification.used_at = NOW()
-     WHERE verification.token_hash = ?
-       AND verification.used_at IS NULL
-       AND verification.expires_at > NOW()
-       AND user.email_verification_expires_at > NOW()`,
-    [tokenHash],
-    (error, result) => {
-      if (error) {
-        console.error("[verifyEmail] DB error:", error.message);
-        return res.status(500).json({ message: "Could not verify your email. Please try again." });
+
+  try {
+    const rows = await queryAsync(
+      `SELECT user.id, user.name, user.username, user.email, user.role, user.email_verified
+       FROM email_verification_tokens AS verification
+       INNER JOIN Student_signup AS user ON user.id = verification.user_id
+       WHERE verification.token_hash = ?
+         AND verification.used_at IS NULL
+         AND verification.expires_at > NOW()
+         AND user.email_verification_expires_at > NOW()
+       LIMIT 1`,
+      [tokenHash],
+    );
+
+    if (!rows.length) {
+      const usedRows = await queryAsync(
+        `SELECT user.role, user.email_verified
+         FROM email_verification_tokens AS verification
+         INNER JOIN Student_signup AS user ON user.id = verification.user_id
+         WHERE verification.token_hash = ?
+         LIMIT 1`,
+        [tokenHash],
+      );
+      if (usedRows.length && Number(usedRows[0].email_verified) === 1) {
+        return res.status(200).json({
+          message: "This email is already verified. You can sign in.",
+          alreadyVerified: true,
+          role: usedRows[0].role,
+        });
       }
-      if (!result.affectedRows) {
-        return res.status(400).json({ message: "Invalid, expired, or already used verification link" });
-      }
-      return res.status(200).json({ message: "Email verified. You can now sign in." });
-    },
-  );
+      return res.status(400).json({ message: "Invalid, expired, or already used verification link" });
+    }
+
+    const user = rows[0];
+    await queryAsync("UPDATE Student_signup SET email_verified = 1 WHERE id = ?", [user.id]);
+    await queryAsync(
+      "UPDATE email_verification_tokens SET used_at = NOW() WHERE token_hash = ?",
+      [tokenHash],
+    );
+
+    // Sign the user in right away so the frontend can continue straight to
+    // the role's registration page instead of asking for the password again.
+    const session = await issueSession(user);
+    return res.status(200).json({
+      message: "Email verified. Let's finish your registration.",
+      alreadyVerified: false,
+      ...session,
+    });
+  } catch (error) {
+    console.error("[verifyEmail] DB error:", error.message);
+    return res.status(500).json({ message: "Could not verify your email. Please try again." });
+  }
 };
 
 export const resendVerificationEmail = async (req, res) => {
@@ -288,42 +349,11 @@ export const login = (req, res) => {
       });
     }
 
-    let universityId = null;
-    if (user.role === "university") {
-      try {
-        await new Promise((resolve) => {
-          db.query(
-            "SELECT id FROM universities WHERE owner_uid = ? LIMIT 1",
-            [user.id],
-            (e, rows) => {
-              if (!e && rows.length) universityId = rows[0].id;
-              resolve();
-            },
-          );
-        });
-      } catch { /* non-fatal — university_id stays null */ }
-    }
-
-    const payload = { id: user.id, email: user.email, role: user.role };
-    if (universityId) payload.university_id = universityId;   // additive only
-
-    const token = jwt.sign(
-      payload,
-      env.JWT_SECRET || "secretkey",
-      { expiresIn: "1d" },
-    );
+    const session = await issueSession(user);
 
     return res.status(200).json({
       message: "Login Successful",
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        email: user.email,
-        role: user.role,
-        ...(universityId ? { university_id: universityId } : {}),
-      },
+      ...session,
     });
   });
 };

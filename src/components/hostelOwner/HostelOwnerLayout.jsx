@@ -2,7 +2,7 @@ import {
   Building2,
   LayoutGrid,
   ListChecks,
-  Clock,
+  Eye,
   HelpCircle,
   LogOut,
 } from 'lucide-react';
@@ -11,8 +11,22 @@ export const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
   { id: 'profile', label: 'Hostel Profile', icon: Building2 },
   { id: 'listing', label: 'Listing Management', icon: ListChecks },
-  { id: 'status', label: 'Status Tracking', icon: Clock },
+  { id: 'preview', label: 'Listing Preview', icon: Eye },
 ];
+
+const APPROVAL_BADGES = {
+  approved: { label: 'Approved', cls: 'bg-emerald-100 text-emerald-700' },
+  pending_admin: { label: 'Approval pending', cls: 'bg-amber-100 text-amber-800' },
+  pending_campus: { label: 'Approval pending', cls: 'bg-amber-100 text-amber-800' },
+  rejected: { label: 'Rejected', cls: 'bg-red-100 text-red-700' },
+};
+
+const LIVE_BADGES = {
+  live: { label: 'Live', cls: 'bg-emerald-600 text-white' },
+  pending_details: { label: 'Listing pending', cls: 'bg-orange-100 text-orange-700' },
+  pending_approval: { label: 'Not live', cls: 'bg-slate-100 text-slate-600' },
+  rejected: { label: 'Not live', cls: 'bg-slate-100 text-slate-600' },
+};
 
 const initials = (name = '') =>
   name
@@ -28,8 +42,14 @@ export default function HostelOwnerLayout({
   onSignOut,
   owner,
   title,
+  status,
+  approvalStatus,
   children,
 }) {
+  const liveBadge = LIVE_BADGES[status] || LIVE_BADGES.pending_approval;
+  const approvalBadge =
+    APPROVAL_BADGES[approvalStatus || 'pending_admin'] || APPROVAL_BADGES.pending_admin;
+
   return (
     <div className="relative flex h-screen overflow-hidden bg-slate-50 font-sans text-slate-900">
       {/* Sidebar (desktop) */}
@@ -93,7 +113,19 @@ export default function HostelOwnerLayout({
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-5 sm:px-8">
             <div>
               <p className="text-sm text-slate-500">Hostel Owner Dashboard</p>
-              <h1 className="text-2xl font-bold">{title}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-bold">{title}</h1>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${approvalBadge.cls}`}
+                >
+                  {approvalBadge.label}
+                </span>
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${liveBadge.cls}`}
+                >
+                  {liveBadge.label}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <div className="text-right leading-tight">

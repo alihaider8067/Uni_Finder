@@ -17,10 +17,17 @@ import {
   reviewHostelRegistration,
   resubmitHostelRegistration,
   downloadHostelReviewDocument,
+  getHostelCompletion,
+  getPublicHostels,
+  getPublicHostelById,
 } from "../controllers/hostel_controller/hostelController.js";
 import hostelRegistrationUpload from "../middleware/hostelRegistrationUpload.js";
 
 const router = express.Router();
+
+// Public: only approved hostels whose mandatory profile/listing details are complete
+router.get("/public", getPublicHostels);
+router.get("/public/:id", getPublicHostelById);
 
 router.get("/review-queue", verifyToken, authorizeRoles("admin", "campus"), getHostelReviewQueue);
 router.patch("/:id/review", verifyToken, authorizeRoles("admin", "campus"), express.json(), reviewHostelRegistration);
@@ -31,6 +38,7 @@ router.use(verifyToken, authorizeRoles("hostel", "campus_hostel"));
 
 router.post("/register", hostelRegistrationUpload, registerHostel);
 router.get("/mine", getMyHostels);
+router.get("/:id/completion", getHostelCompletion);
 router.post("/:id/resubmit", resubmitHostelRegistration);
 router.post("/", createHostel);
 router.get("/:id", getMyHostelById);

@@ -1,11 +1,48 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { API, resendVerificationEmail } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import logo from "../assets/Logo.png";
+
+const ROLE_HOME = {
+  student: "/homepage",
+  university: "/university/dashboard",
+  campus: "/campus/register",
+  admin: "/admin/dashboard",
+};
+
+async function resolveNextPage(role, token) {
+  if (role === "hostel" || role === "campus_hostel") {
+    try {
+      const response = await fetch(`${API}/api/hostels/mine`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      const registrations = Array.isArray(data.hostels) ? data.hostels : [];
+      if (registrations.some((hostel) => hostel.status === "approved")) {
+        return "/hostel/dashboard";
+      }
+      if (registrations.length) return "/hostel/registration-status";
+    } catch {
+      /* fall through to the registration form */
+    }
+    return `/hostel/register/${role}`;
+  }
+  return ROLE_HOME[role] || "/login";
+}
 
 function VerifyEmail() {
   const { token } = useParams();
-  const [state, setState] = useState({ loading: false, success: false, complete: false, message: "" });
+  const navigate = useNavigate();
+  const { login } = useAuth();
+  const [state, setState] = useState({
+    loading: false,
+    success: false,
+    complete: false,
+    alreadyVerified: false,
+    message: "",
+    nextPage: "",
+  });
   const [email, setEmail] = useState("");
   const [resendMessage, setResendMessage] = useState("");
   const [resending, setResending] = useState(false);
@@ -16,6 +53,14 @@ function VerifyEmail() {
       ? state.success ? "Email verified" : "Verification failed"
       : "Confirm your email";
 
+  useEffect(() => {
+    if (!state.complete || !state.success || state.alreadyVerified || !state.nextPage) {
+      return undefined;
+    }
+    const timer = setTimeout(() => navigate(state.nextPage, { replace: true }), 1400);
+    return () => clearTimeout(timer);
+  }, [state.complete, state.success, state.alreadyVerified, state.nextPage, navigate]);
+
   const verify = async () => {
     setState((current) => ({ ...current, loading: true, message: "" }));
     try {
@@ -23,18 +68,39 @@ function VerifyEmail() {
         method: "POST",
       });
       const data = await response.json();
+
+      if (response.ok && data.token && data.user) {
+        sessionStorage.setItem("token", data.token);
+        sessionStorage.setItem("userId", data.user.id);
+        await login(data.user);
+        const nextPage = await resolveNextPage(data.user.role, data.token);
+        setState({
+          loading: false,
+          success: true,
+          complete: true,
+          alreadyVerified: false,
+          message: data.message || "Email verified.",
+          nextPage,
+        });
+        return;
+      }
+
       setState({
         loading: false,
         success: response.ok,
         complete: true,
+        alreadyVerified: Boolean(data.alreadyVerified),
         message: data.message || "Could not verify this email address.",
+        nextPage: "",
       });
     } catch {
       setState({
         loading: false,
         success: false,
         complete: true,
+        alreadyVerified: false,
         message: "Could not reach the server. Please try again.",
+        nextPage: "",
       });
     }
   };
@@ -76,7 +142,21 @@ function VerifyEmail() {
             Verify email address
           </button>
         )}
-        {state.complete && !state.loading && state.success && (
+        {state.complete && !state.loading && state.success && !state.alreadyVerified && state.nextPage && (
+          <>
+            <p className="mt-4 text-sm text-gray-500">
+              Opening your registration page...
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate(state.nextPage, { replace: true })}
+              className="mt-3 inline-block rounded-xl bg-orange-500 px-6 py-3 font-semibold text-white hover:bg-orange-600"
+            >
+              Continue now
+            </button>
+          </>
+        )}
+        {state.complete && !state.loading && state.alreadyVerified && (
           <Link to="/login" className="mt-6 inline-block rounded-xl bg-orange-500 px-6 py-3 font-semibold text-white hover:bg-orange-600">
             Continue to login
           </Link>

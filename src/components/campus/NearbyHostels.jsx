@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  BedDouble,
   Building2,
   ChevronDown,
   Heart,
   MapPin,
-  Phone,
   ShieldCheck,
   SlidersHorizontal,
-  Wallet,
-  X,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { API, fileUrl } from "../../api/client";
@@ -35,18 +31,6 @@ const TYPE_LABEL = {
   girls: "Girls Hostel",
   both: "Boys & Girls Hostel",
 };
-
-const typeClass = (gender) =>
-  gender === "girls"
-    ? "bg-rose-50 text-rose-600"
-    : gender === "both"
-      ? "bg-violet-50 text-violet-700"
-      : "bg-sky-50 text-sky-700";
-
-const mapsUrl = (h) =>
-  h.latitude != null && h.longitude != null
-    ? `https://www.google.com/maps?q=${h.latitude},${h.longitude}`
-    : null;
 
 const photosOf = (h) =>
   (Array.isArray(h?.photos) ? h.photos : [])
@@ -91,52 +75,6 @@ function GenderBadge({ gender }) {
       )}
       {TYPE_LABEL[gender] || "Hostel"}
     </span>
-  );
-}
-
-function HostelGallery({ hostel }) {
-  const photos = photosOf(hostel);
-  const [index, setIndex] = useState(0);
-  const active = photos[index];
-
-  if (photos.length === 0) {
-    return (
-      <div className="relative h-40 bg-gradient-to-br from-orange-50 to-slate-100 flex items-center justify-center">
-        <Building2 size={44} className="text-orange-300" />
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="relative h-48 bg-slate-100">
-        <img
-          src={fileUrl(active)}
-          alt={hostel.name}
-          className="absolute inset-0 h-full w-full object-cover"
-          loading="lazy"
-        />
-        <div className="absolute bottom-2.5 right-2.5 rounded-full bg-slate-900/60 px-2.5 py-1 text-[11px] font-semibold text-white">
-          {index + 1} / {photos.length}
-        </div>
-      </div>
-      {photos.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto p-3">
-          {photos.map((url, i) => (
-            <button
-              key={`${url}-${i}`}
-              type="button"
-              onClick={() => setIndex(i)}
-              className={`relative h-14 w-20 flex-shrink-0 overflow-hidden rounded-lg border-2 transition-colors
-                ${i === index ? "border-orange-500" : "border-transparent hover:border-orange-200"}`}
-              aria-label={`Photo ${i + 1}`}
-            >
-              <img src={fileUrl(url)} alt="" className="h-full w-full object-cover" loading="lazy" />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -199,7 +137,6 @@ export default function NearbyHostels({ campusId }) {
   const [genderFilter, setGenderFilter] = useState("all");
   const [distanceFilter, setDistanceFilter] = useState("all");
   const [saved, setSaved] = useState({});
-  const [details, setDetails] = useState(null);
 
   useEffect(() => {
     if (!campusId) return;
@@ -268,7 +205,8 @@ export default function NearbyHostels({ campusId }) {
         <div>
           <h2 className="text-xl font-bold text-gray-800">Campus Hostels</h2>
           <p className="text-sm text-gray-500 mt-1">
-            Hostels listed by this campus, with photos and contact details.
+            Hostels listed by this campus, plus verified hostel listings within
+            5 km of the campus.
           </p>
         </div>
         {hostels.length > 0 && (
@@ -330,6 +268,15 @@ export default function NearbyHostels({ campusId }) {
                       <Building2 size={40} className="text-orange-300" />
                     </div>
                   )}
+                  <span
+                    className={`absolute left-2.5 top-2.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white shadow-lg ${
+                      h.ownership === "Private Hostel"
+                        ? "bg-[#ff6a00]"
+                        : "bg-emerald-600"
+                    }`}
+                  >
+                    {h.ownership || "Campus Hostel"}
+                  </span>
                   <div className="absolute bottom-2.5 left-2.5">
                     <GenderBadge gender={h.gender} />
                   </div>
@@ -353,10 +300,12 @@ export default function NearbyHostels({ campusId }) {
                     {h.name}
                   </h3>
 
-                  {h.address && (
+                  {(h.address || h.distance_km != null) && (
                     <p className="mt-1.5 flex items-center gap-1 text-xs text-gray-500">
                       <MapPin size={12} className="flex-shrink-0 text-orange-400" />
-                      <span className="line-clamp-1">{h.address}</span>
+                      <span className="line-clamp-1">
+                        {h.distance_km != null ? `${h.distance_km} km from campus` : h.address}
+                      </span>
                     </p>
                   )}
 
@@ -387,7 +336,7 @@ export default function NearbyHostels({ campusId }) {
                   <div className="mt-auto pt-3">
                     <button
                       type="button"
-                      onClick={() => setDetails(h)}
+                      onClick={() => navigate(`/hostels/${h.id}`)}
                       className="w-full cursor-pointer rounded-lg border-2 border-orange-500 py-2.5 text-sm font-semibold text-orange-500 transition-all duration-200 hover:bg-orange-500 hover:text-white hover:shadow-md active:scale-95"
                     >
                       View Details
@@ -400,162 +349,6 @@ export default function NearbyHostels({ campusId }) {
         </div>
       )}
 
-      {details && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: "rgba(15, 23, 42, 0.45)" }}
-          onClick={() => setDetails(null)}
-        >
-          <div
-            className="relative bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <HostelGallery key={details.id} hostel={details} />
-            <button
-              type="button"
-              onClick={() => setDetails(null)}
-              className="absolute top-3 right-3 z-10 w-8 h-8 rounded-full bg-white/90 text-gray-600 flex items-center justify-center"
-              aria-label="Close"
-            >
-              <X size={16} />
-            </button>
-            <div className="p-5">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${typeClass(details.gender)}`}>
-                  {TYPE_LABEL[details.gender] || "Hostel"}
-                </span>
-                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
-                  {details.ownership}
-                </span>
-              </div>
-              <h3 className="text-lg font-bold text-gray-800 mt-2">{details.name}</h3>
-
-              {details.address && (
-                <p className="flex items-start gap-1.5 text-sm text-slate-500 mt-2">
-                  <MapPin size={14} className="text-orange-400 mt-0.5 flex-shrink-0" />
-                  {details.address}
-                </p>
-              )}
-              {details.distance_km != null && (
-                <p className="text-sm text-slate-500 mt-1.5">{details.distance_km} km from campus</p>
-              )}
-              {!!(details.rooms || details.rent_min) && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {details.rooms ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                      <BedDouble size={13} className="text-orange-400" /> {details.rooms} rooms
-                    </span>
-                  ) : null}
-                  {details.rent_min ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                      <Wallet size={13} className="text-orange-400" /> Rs.{" "}
-                      {Number(details.rent_min).toLocaleString("en-PK")}
-                      {details.rent_max != null && details.rent_max !== details.rent_min
-                        ? ` – ${Number(details.rent_max).toLocaleString("en-PK")}`
-                        : ""}/month
-                    </span>
-                  ) : null}
-                </div>
-              )}
-              {details.about && <p className="mt-4 whitespace-pre-line text-sm leading-6 text-slate-600">{details.about}</p>}
-              {(details.floors || details.nearby_distance || details.check_in_time || details.check_out_time) && (
-                <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-4 text-sm">
-                  {details.floors && <p><span className="text-slate-500">Floors</span><br /><strong>{details.floors}</strong></p>}
-                  {details.nearby_distance && <p><span className="text-slate-500">Nearby campus</span><br /><strong>{details.nearby_distance}</strong></p>}
-                  {details.check_in_time && <p><span className="text-slate-500">Check-in</span><br /><strong>{details.check_in_time}</strong></p>}
-                  {details.check_out_time && <p><span className="text-slate-500">Check-out</span><br /><strong>{details.check_out_time}</strong></p>}
-                </div>
-              )}
-              {Array.isArray(details.room_details) && details.room_details.length > 0 && (
-                <section className="mt-5">
-                  <h4 className="font-semibold text-slate-800">Rooms & pricing</h4>
-                  <div className="mt-2 overflow-x-auto rounded-xl border border-slate-100">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 text-slate-500">
-                        <tr><th className="p-2.5">Room</th><th className="p-2.5">Rooms</th><th className="p-2.5">Available beds</th><th className="p-2.5">Monthly rent</th></tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {details.room_details.map((room) => (
-                          <tr key={room.id}>
-                            <td className="p-2.5 font-medium">{room.room_type}</td>
-                            <td className="p-2.5">{room.total_rooms}</td>
-                            <td className="p-2.5">{room.available_beds}</td>
-                            <td className="p-2.5">Rs. {Number(room.monthly_rent || 0).toLocaleString("en-PK")}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              )}
-              {Array.isArray(details.amenities) && details.amenities.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {details.amenities.map((a, i) => (
-                    <span key={`${a}-${i}`} className="rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-medium text-orange-700">
-                      {a}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {Array.isArray(details.facilities) && details.facilities.length > 0 && (
-                <section className="mt-4">
-                  <h4 className="text-sm font-semibold text-slate-800">Facilities & charges</h4>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {details.facilities.map((facility, index) => (
-                      <span key={`${facility?.name || facility}-${index}`} className="rounded-full bg-slate-50 px-2.5 py-1 text-xs text-slate-600">
-                        {typeof facility === "string" ? facility : `${facility.name}${facility.amount ? ` · Rs. ${facility.amount}` : ""}`}
-                      </span>
-                    ))}
-                  </div>
-                </section>
-              )}
-              {Array.isArray(details.hostel_rules) && details.hostel_rules.length > 0 && (
-                <section className="mt-4">
-                  <h4 className="text-sm font-semibold text-slate-800">Hostel rules</h4>
-                  <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-600">
-                    {details.hostel_rules.map((rule, index) => (
-                      <li key={index}>{typeof rule === "string" ? rule : [rule.category, rule.text].filter(Boolean).join(": ")}</li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-              {(details.owner_name || details.owner_contact || details.warden_name || details.warden_contact) && (
-                <div className="mt-4 rounded-xl border border-slate-100 p-4 text-sm">
-                  <h4 className="font-semibold text-slate-800">Contact details</h4>
-                  {details.owner_name && <p className="mt-2 text-slate-600">Owner / Manager: {details.owner_name}</p>}
-                  {details.owner_contact && <a className="mt-1 block text-orange-600" href={`tel:${details.owner_contact}`}>Owner: {details.owner_contact}</a>}
-                  {details.warden_name && <p className="mt-2 text-slate-600">Warden: {details.warden_name}</p>}
-                  {details.warden_contact && <a className="mt-1 block text-orange-600" href={`tel:${details.warden_contact}`}>Warden: {details.warden_contact}</a>}
-                </div>
-              )}
-              {(details.mess_details && Object.keys(details.mess_details).length > 0 || details.additional_fees && Object.keys(details.additional_fees).length > 0) && (
-                <details className="mt-4 rounded-xl border border-slate-100 p-4">
-                  <summary className="cursor-pointer text-sm font-semibold text-slate-800">Mess, security & additional charges</summary>
-                  <pre className="mt-3 whitespace-pre-wrap break-words text-xs text-slate-600">{JSON.stringify({ mess: details.mess_details, charges: details.additional_fees }, null, 2)}</pre>
-                </details>
-              )}
-              {details.phone && (
-                <a
-                  href={`tel:${details.phone}`}
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-orange-500 mt-2"
-                >
-                  <Phone size={14} /> {details.phone}
-                </a>
-              )}
-              {mapsUrl(details) && (
-                <a
-                  href={mapsUrl(details)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block mt-4 text-center px-4 py-2 rounded-lg border-2 border-orange-500 text-sm font-semibold text-orange-500 hover:bg-orange-500 hover:text-white transition-colors"
-                >
-                  View on Map
-                </a>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

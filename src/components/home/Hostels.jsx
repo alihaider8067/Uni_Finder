@@ -1,93 +1,46 @@
-// C:\Users\Track Computers\Downloads\testfolder\uni-finder\src\components\Hostels.jsx
-import React, { useState } from "react";
-import {
-  FiMapPin,
-  FiStar,
-  FiCheckCircle,
-  FiX,
-  FiClock,
-} from "react-icons/fi";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { FiMapPin, FiCheckCircle, FiHome } from "react-icons/fi";
+import { API, fileUrl } from "../../api/client";
 
-const hostelList = [
-  {
-    id: 1,
-    name: "Al-Noor Executive Boys Hostel",
-    Location: "ALi Town, Lahore",
-    minFee: "12k",
-    maxFee: "18k",
-    reviews: "142",
-    image: "https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?w=700&auto=format&fit=crop&q=80",
-    amenities: [
-      "High-speed WiFi",
-      "Air Conditioned",
-      "3-Time Mess",
-      "Security & CCTV",
-    ],
-    gender: "Boys Hostel",
-  },
-  {
-    id: 2,
-    name: "LUMS Residency Girls Hostel",
-    Location: "Farozpur Road, Lahore",
-    minFee: "18k",
-    maxFee: "25k",
-    image: "https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=700&auto=format&fit=crop&q=80",
-    amenities: [
-      "Biometric Entry",
-      "AC & Generator",
-      "Hygiene Mess",
-      "Laundry Service",
-    ],
-    gender: "Girls Hostel",
-  },
-  {
-    id: 3,
-    name: "Capital Executive Student Lodge",
-    Location: "G-10, Islamabad",
-    minFee: "14k",
-    maxFee: "22k",
-    reviews: "210",
-    image: "https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=700&auto=format&fit=crop&q=80",
-    amenities: [
-      "UPS Back-up",
-      "Weekly Mess Menu",
-      "Daily Housekeeping",
-      "Study Room",
-    ],
-    gender: "Boys Hostel",
-  },
-  {
-    id: 4,
-    name: "Blue Area Scholars Lodge",
-    Location: "Blue Area, Islamabad",
-    minFee: "10k",
-    maxFee: "16k",
-    reviews: "87",
-    image: "https://images.unsplash.com/photo-1590490360182-c33d57733427?w=700&auto=format&fit=crop&q=80",
-    amenities: ["WiFi", "Mess Included", "Laundry", "Parking"],
-    gender: "Boys Hostel",
-  },
-  {
-    id: 5,
-    name: "DHA Phase 5 Girls Residence",
-    Location: "DHA Phase 5, Lahore",
-    minFee: "20k",
-    maxFee: "30k",
-    image: "https://images.unsplash.com/photo-1540518614846-7eded433c457?w=700&auto=format&fit=crop&q=80",
-    amenities: ["24/7 Security", "AC Rooms", "3 Meals", "Transport"],
-    gender: "Girls Hostel",
-  },
-  {
-    id: 6,
-    name: "I-8 Student Enclave",
-    Location: "I-8, Islamabad",
-    minFee: "12k",
-    maxFee: "20k",
-    image: "https://images.unsplash.com/photo-1566665797739-1674de7a421a?w=700&auto=format&fit=crop&q=80",
-    amenities: ["Generator", "Hot Water", "Mess", "Common Room"],
-    gender: "Boys Hostel",
-  },
-];
+const TYPE_BADGE = {
+  campus: "bg-emerald-600",
+  private: "bg-[#ff6a00]",
+};
+
+function formatRent(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return "";
+  return num >= 1000 ? `${Number((num / 1000).toFixed(1))}k` : String(Math.round(num));
+}
+
+function toCard(hostel) {
+  const minRent = formatRent(hostel.rent_min);
+  const maxRent = formatRent(hostel.rent_max);
+
+  return {
+    id: hostel.id,
+    name: hostel.name,
+    isCampus: hostel.hostel_type === "university",
+    typeLabel:
+      hostel.type_label ||
+      (hostel.hostel_type === "university" ? "Campus Hostel" : "Private Hostel"),
+    Location: hostel.location || "",
+    nearby: hostel.nearby_distance || "",
+    minFee: minRent,
+    maxFee: maxRent && maxRent !== minRent ? maxRent : "",
+    image: hostel.cover_photo ? fileUrl(hostel.cover_photo) : null,
+    gender:
+      hostel.gender === "girls"
+        ? "Girls Hostel"
+        : hostel.gender === "boys"
+          ? "Boys Hostel"
+          : "Student Hostel",
+    amenities: Array.isArray(hostel.amenities) ? hostel.amenities : [],
+    rooms: hostel.rooms_count || 0,
+    seats: hostel.seats_available || 0,
+  };
+}
 
 function getGenderStyle(gender) {
   if (gender === "Girls Hostel") {
@@ -97,20 +50,37 @@ function getGenderStyle(gender) {
 }
 
 function HostelCard({ hostel, onViewDetails }) {
-  var genderBg = getGenderStyle(hostel.gender);
+  const genderBg = getGenderStyle(hostel.gender);
 
   return (
     <article className="min-w-[280px] max-w-[280px] bg-white rounded-xl overflow-hidden border border-gray-100 hover:border-orange-200 hover:shadow-lg hover:shadow-orange-100/50 hover:-translate-y-1.5 transition-all duration-300 scroll-snap-align-start flex flex-col group">
       {/* Image area */}
       <div className="relative h-44 overflow-hidden bg-slate-100">
-        <img
-          src={hostel.image}
-          alt={hostel.name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-          loading="lazy"
-        />
+        {hostel.image ? (
+          <img
+            src={hostel.image}
+            alt={hostel.name}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-orange-50 via-slate-50 to-slate-100 text-slate-400">
+            <FiHome size={30} />
+            <span className="text-[11px] font-medium">Photos coming soon</span>
+          </div>
+        )}
 
-        {/* Gender badge — visible with solid background */}
+        {/* Campus / Private badge */}
+        <span
+          className={
+            "absolute top-2.5 left-2.5 text-white text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full shadow-lg " +
+            (hostel.isCampus ? TYPE_BADGE.campus : TYPE_BADGE.private)
+          }
+        >
+          {hostel.typeLabel}
+        </span>
+
+        {/* Gender badge */}
         <span
           className={
             "absolute bottom-2.5 left-2.5 " +
@@ -168,10 +138,19 @@ function HostelCard({ hostel, onViewDetails }) {
 
         <div className="flex items-center justify-between mb-3">
           <div className="text-right">
-            <span className="text-lg font-extrabold text-orange-600">
-              ₨ {hostel.minFee} – {hostel.maxFee}
-            </span>
-            <span className="text-[10px] text-gray-400 font-normal">/mo</span>
+            {hostel.minFee ? (
+              <>
+                <span className="text-lg font-extrabold text-orange-600">
+                  ₨ {hostel.minFee}
+                  {hostel.maxFee ? ` – ${hostel.maxFee}` : ""}
+                </span>
+                <span className="text-[10px] text-gray-400 font-normal">/mo</span>
+              </>
+            ) : (
+              <span className="text-sm font-semibold text-gray-500">
+                Rent on request
+              </span>
+            )}
           </div>
         </div>
 
@@ -213,24 +192,48 @@ function HostelCard({ hostel, onViewDetails }) {
 }
 
 export default function Hostels() {
-  var modalState = useState(false);
-  var showModal = modalState[0];
-  var setShowModal = modalState[1];
+  const navigate = useNavigate();
+  const [hostels, setHostels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  var hostelState = useState(null);
-  var selectedHostel = hostelState[0];
-  var setSelectedHostel = hostelState[1];
+  useEffect(() => {
+    let cancelled = false;
 
+    const loadHostels = async () => {
+      try {
+        setLoading(true);
+        setError("");
 
-  function handleViewDetails(hostel) {
-    setSelectedHostel(hostel);
-    setShowModal(true);
-  }
+        const response = await fetch(`${API}/api/hostels/public`);
+        const data = await response.json();
 
-  function handleCloseModal() {
-    setShowModal(false);
-    setSelectedHostel(null);
-  }
+        if (!response.ok) {
+          throw new Error(data.message || "Could not load hostels.");
+        }
+
+        if (!cancelled) {
+          setHostels((data.hostels || []).map(toCard));
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.message || "Could not load hostels.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadHostels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleViewDetails = (hostel) => {
+    navigate(`/hostels/${hostel.id}`);
+  };
+
+  const carousel = hostels.length >= 4;
 
   return (
     <section id="hostels" className="py-5 bg-gray-50 overflow-hidden">
@@ -242,57 +245,121 @@ export default function Hostels() {
               Accommodation
             </p>
             <h2 className="text-2xl font-bold text-gray-800">
-              Universities Hostels
+              Hostels on UniFinder
             </h2>
           </div>
 
         </div>
 
-        <p className="text-sm text-gray-500 mb-5 max-w-2xl">
-          Explore student-friendly hostel stays, transparent mess menus, and
+        <p className="text-sm text-gray-500 mb-4 max-w-2xl">
+          Explore verified campus and private hostels, transparent mess menus, and
           convenient accommodation near your campus.
         </p>
 
-        {/* Infinite auto-moving carousel */}
-        <style>{`
-          .hostel-marquee {
-            animation: hostel-scroll 35s linear infinite;
-            will-change: transform;
-          }
+        {/* Type legend */}
+        <div className="mb-5 flex flex-wrap items-center gap-2 text-xs font-semibold">
+          <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">
+            <span className="h-2 w-2 rounded-full bg-emerald-600" />
+            Campus Hostel
+          </span>
+          <span className="flex items-center gap-1.5 rounded-full bg-orange-50 px-3 py-1 text-orange-700">
+            <span className="h-2 w-2 rounded-full bg-[#ff6a00]" />
+            Private Hostel
+          </span>
+        </div>
 
-          @keyframes hostel-scroll {
-            from { transform: translateX(0); }
-            to { transform: translateX(-50%); }
-          }
+        {error && (
+          <div className="mb-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+          </div>
+        )}
 
-          @media (prefers-reduced-motion: reduce) {
-            .hostel-marquee { animation-duration: 90s; }
-          }
-        `}</style>
+        {loading ? (
+          <div className="flex gap-3.5 overflow-hidden">
+            {[0, 1, 2, 3].map((index) => (
+              <div
+                key={index}
+                className="min-w-[280px] max-w-[280px] animate-pulse overflow-hidden rounded-xl border border-gray-100 bg-white"
+              >
+                <div className="h-44 bg-slate-100" />
+                <div className="space-y-3 p-4">
+                  <div className="h-3.5 w-4/5 rounded bg-slate-100" />
+                  <div className="h-3 w-3/5 rounded bg-slate-100" />
+                  <div className="h-5 w-1/2 rounded bg-slate-100" />
+                  <div className="h-9 w-full rounded-lg bg-slate-100" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : hostels.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-10 text-center">
+            <FiHome className="mx-auto mb-3 text-slate-300" size={32} />
+            <p className="text-sm font-semibold text-slate-700">
+              No approved hostels yet
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Hostels appear here automatically once owners complete their details
+              and get approved.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Infinite auto-moving carousel */}
+            <style>{`
+              .hostel-marquee {
+                animation: hostel-scroll 35s linear infinite;
+                will-change: transform;
+              }
 
-        <div className="overflow-hidden">
-          <div className="hostel-marquee flex w-max">
-            {[0, 1].map(function (group) {
-              return (
-                <div
-                  key={group}
-                  className="flex shrink-0 gap-3.5 pr-3.5"
-                  aria-hidden={group === 1 ? "true" : undefined}
-                >
-                  {hostelList.map(function (hostel) {
+              @keyframes hostel-scroll {
+                from { transform: translateX(0); }
+                to { transform: translateX(-50%); }
+              }
+
+              @media (prefers-reduced-motion: reduce) {
+                .hostel-marquee { animation-duration: 90s; }
+              }
+            `}</style>
+
+            <div className="overflow-hidden">
+              {carousel ? (
+                <div className="hostel-marquee flex w-max">
+                  {[0, 1].map(function (group) {
+                    return (
+                      <div
+                        key={group}
+                        className="flex shrink-0 gap-3.5 pr-3.5"
+                        aria-hidden={group === 1 ? "true" : undefined}
+                      >
+                        {hostels.map(function (hostel) {
+                          return (
+                            <HostelCard
+                              key={`${group}-${hostel.id}`}
+                              hostel={hostel}
+                              onViewDetails={handleViewDetails}
+                            />
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex gap-3.5 overflow-x-auto pb-2">
+                  {hostels.map(function (hostel) {
                     return (
                       <HostelCard
-                        key={`${group}-${hostel.id}`}
+                        key={hostel.id}
                         hostel={hostel}
                         onViewDetails={handleViewDetails}
                       />
                     );
                   })}
                 </div>
-              );
-            })}
-          </div>
-        </div>
+              )}
+            </div>
+          </>
+        )}
 
         {/* Trust badges */}
         <div className="mt-6 flex flex-wrap items-center gap-4">
@@ -318,81 +385,6 @@ export default function Hostels() {
         </div>
       </div>
 
-      {/* Coming Soon Modal */}
-      {showModal && selectedHostel && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm"
-          onClick={handleCloseModal}
-        >
-          <div
-            className="relative bg-white w-full max-w-sm rounded-3xl p-8 shadow-2xl border border-orange-100 text-center"
-            onClick={function (e) {
-              e.stopPropagation();
-            }}
-          >
-            <button
-              onClick={handleCloseModal}
-              className="absolute top-4 right-4 text-gray-400 hover:text-slate-800 bg-gray-100 hover:bg-gray-200 p-2 rounded-full transition"
-            >
-              <FiX className="w-5 h-5" />
-            </button>
-
-            {/* Animated icon */}
-            <div className="mx-auto w-20 h-20 rounded-2xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center mb-6 shadow-lg shadow-orange-200/50">
-              <FiClock
-                className="text-white"
-                style={{ width: "36px", height: "36px" }}
-              />
-            </div>
-
-            <h3 className="text-2xl font-extrabold text-slate-900 mb-2">
-              Coming Soon
-            </h3>
-
-            <p className="text-sm text-gray-500 mb-2 leading-relaxed">
-              Detailed page for
-            </p>
-
-            <p className="text-base font-bold text-orange-600 mb-6 line-clamp-2">
-              {selectedHostel.name}
-            </p>
-
-            <div className="flex items-center justify-center gap-3 mb-6 p-3 bg-gray-50 rounded-xl border border-gray-100">
-              <div className="text-center">
-                <p className="text-[10px] text-gray-400 uppercase font-semibold">
-                  Distance
-                </p>
-                <p className="text-xs font-bold text-slate-700 mt-0.5">
-                  {selectedHostel.distance}
-                </p>
-              </div>
-              <span className="w-px h-8 bg-gray-200" />
-              <div className="text-center">
-                <p className="text-[10px] text-gray-400 uppercase font-semibold">
-                  Price
-                </p>
-                <p className="text-xs font-bold text-orange-600 mt-0.5">
-                  ₨ {selectedHostel.minFee} – {selectedHostel.maxFee}
-                  <span className="text-gray-400 font-normal">/mo</span>
-                </p>
-              </div>
-              <span className="w-px h-8 bg-gray-200" />
-            </div>
-
-            <p className="text-xs text-gray-400 mb-6">
-              We are working on bringing you full room galleries, mess menus,
-              student reviews, and instant booking.
-            </p>
-
-            <button
-              onClick={handleCloseModal}
-              className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition active:scale-95 shadow-md"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      )}
     </section>
   );
 }

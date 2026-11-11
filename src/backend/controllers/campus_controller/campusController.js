@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import process from "node:process";
 import db from "../../config/db.js";
+import { evaluateHostelCompletion } from "../../utils/hostelCompleteness.js";
 
 const q = (sql, vals = []) =>
   new Promise((res, rej) => db.query(sql, vals, (e, r) => (e ? rej(e) : res(r))));
@@ -23,6 +24,7 @@ const SAVE_FIELDS = [
   "quota_policy",
   "announcements",
   "admission_status_override",
+  "cover_image",
   // legacy fields (kept for backward-compat)
   "history", "duration", "fee",
 ];
@@ -466,6 +468,112 @@ export const searchCampuses = async (req, res) => {
   }
 };
 
+// GET /campuses/compare?ids=id1,id2,id3
+// Returns an array of full campus detail objects (same shape as getCampusById).
+// Max 3 campuses. Each is fetched in parallel.
+export const compareCampuses = async (req, res) => {
+  const raw = String(req.query.ids || "");
+  const ids = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (ids.length < 2) {
+    return res.status(400).json({ message: "At least 2 campus IDs are required." });
+  }
+
+  const fetchOne = async (campusId) => {
+    const rows = await q(
+      `SELECT c.id, c.name, c.campus_type, c.city, c.province, c.address,
+              c.description, c.why_choose, c.lat, c.lng, c.phone, c.whatsapp,
+              c.email, c.office_hours, c.shift_morning, c.shift_evening,
+              c.shift_weekend, c.gender_policy, c.hostel_available, c.is_main,
+              c.admission_open, c.admission_close, c.intake_name, c.classes_start,
+              c.class_arrangement, c.admission_status_override, c.students,
+              c.cover_image, c.required_documents, c.scholarships,
+              c.quota_policy, c.announcements,
+              u.name AS university_name, u.logo_url, u.banner_url AS university_banner,
+              u.university_type AS sector, u.hec_rank, u.oric_domain, u.campus_count,
+              COALESCE(up.established_year, u.established_year) AS university_established_year,
+              u.employment_rate AS university_employment_rate
+       FROM campuses c
+       LEFT JOIN universities u ON u.id = c.university_id
+       LEFT JOIN university_profiles up ON up.university_id = u.id
+       WHERE c.id = ? LIMIT 1`,
+      [campusId]
+    );
+
+    if (!rows.length) return null;
+
+    const [programs, images, facilities, societies, hostels] = await Promise.all([
+      q(
+        `SELECT cp.id, cp.fee, cp.duration, cp.shifts, cp.details,
+                p.name, p.level, p.degree_type
+         FROM campus_programs cp
+         JOIN programs p ON p.id = cp.program_id
+         WHERE cp.campus_id = ? AND cp.status = 'published'
+         ORDER BY p.name`,
+        [campusId]
+      ),
+      q(
+        `SELECT id, image_url, caption, category, featured
+         FROM campus_images WHERE campus_id = ?
+         ORDER BY featured DESC, created_at DESC LIMIT 1`,
+        [campusId]
+      ),
+      q("SELECT * FROM campus_facilities WHERE campus_id = ? LIMIT 1", [campusId]),
+      q(
+        `SELECT id, name, category, description, initials
+         FROM campus_societies WHERE campus_id = ? ORDER BY created_at ASC`,
+        [campusId]
+      ),
+      q(
+        `SELECT id, name, hostel_type, gender, rooms, rent_min, walk_dist, contact, amenities, rooms_detail, status
+         FROM campus_hostels WHERE campus_id = ? AND status = 'live'
+         ORDER BY gender ASC, created_at ASC`,
+        [campusId]
+      ),
+    ]);
+
+    const facility = facilities[0];
+
+    return {
+      ...rows[0],
+      required_documents: parseJson(rows[0].required_documents, []),
+      scholarships: parseJson(rows[0].scholarships, []),
+      announcements: parseJson(rows[0].announcements, []),
+      programs: programs.map((p) => ({
+        ...p,
+        details: parseJson(p.details, {}),
+      })),
+      images,
+      facilities: facility
+        ? {
+            ...facility,
+            selected_ids: parseJson(facility.selected_ids, []),
+            transport_routes: parseJson(facility.transport_routes, []),
+          }
+        : null,
+      societies,
+      hostels: hostels.map((h) => ({
+        ...h,
+        amenities: parseJson(h.amenities, []),
+        rooms_detail: parseJson(h.rooms_detail, []),
+      })),
+    };
+  };
+
+  try {
+    const results = await Promise.all(ids.map(fetchOne));
+    // Filter nulls (not-found campuses) but keep order
+    return res.status(200).json(results.filter(Boolean));
+  } catch (e) {
+    console.error("compareCampuses error:", e);
+    return res.status(500).json({ message: "DB error", error: e.message });
+  }
+};
+
 export const getCampusById = async (req, res) => {
   try {
     const rows = await q(
@@ -557,6 +665,28 @@ const num = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
+const CAMPUS_NEARBY_RADIUS_KM = 5;
+
+// Campus locations are loaded once and kept in memory; hostels within 5 km of
+// any campus are matched against these coordinates.
+const campusGeoCache = new Map();
+
+const loadCampusGeoCache = async () => {
+  if (campusGeoCache.size) return campusGeoCache;
+  const rows = await q(
+    `SELECT id, name, city, lat, lng FROM campuses
+     WHERE lat IS NOT NULL AND lng IS NOT NULL AND lat <> 0 AND lng <> 0`
+  );
+  rows.forEach((campus) => {
+    const lat = Number(campus.lat);
+    const lng = Number(campus.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      campusGeoCache.set(campus.id, { ...campus, lat, lng });
+    }
+  });
+  return campusGeoCache;
+};
+
 const jsonOr = (v, fallback) => {
   if (v == null) return fallback;
   if (typeof v === "object") return v;
@@ -736,7 +866,146 @@ export const listApprovedCampusHostels = async (req, res) => {
       };
     });
 
-    return res.json([...hostels, ...ownerManagedHostels]);
+    // Any approved + complete hostel within 5 km of this campus is shown too,
+    // even when the owner did not link it to this campus.
+    const campusGeo = (await loadCampusGeoCache()).get(campusId) || {
+      lat: cLat,
+      lng: cLng,
+    };
+    const linkedIds = new Set(registeredRows.map((hostel) => hostel.id));
+
+    const nearbyCandidates =
+      campusGeo.lat != null && campusGeo.lng != null
+        ? (
+            await q(
+              `SELECT h.id, h.name, h.hostel_type, h.campus_id, h.address,
+                      h.lat AS latitude, h.lng AS longitude, h.floors,
+                      h.nearby_distance, h.owner_name, h.owner_contact,
+                      h.warden_name, h.warden_contact,
+                      d.gender, d.contact_phone AS phone, d.description AS about,
+                      d.amenities, d.mess_details, d.additional_fees, d.hostel_rules,
+                      d.check_in_time, d.check_out_time
+               FROM hostels h
+               LEFT JOIN hostel_listing_details d ON d.hostel_id = h.id
+               WHERE h.status = 'approved'
+                 AND h.lat IS NOT NULL AND h.lng IS NOT NULL
+               ORDER BY h.created_at ASC
+               LIMIT 300`
+            )
+          )
+            .filter((hostel) => !linkedIds.has(hostel.id))
+            .map((hostel) => {
+              const latitude = num(hostel.latitude);
+              const longitude = num(hostel.longitude);
+              if (latitude == null || longitude == null) return null;
+              const distance = haversineKm(campusGeo.lat, campusGeo.lng, latitude, longitude);
+              if (distance > CAMPUS_NEARBY_RADIUS_KM) return null;
+              return {
+                ...hostel,
+                latitude,
+                longitude,
+                distance_km: Math.round(distance * 10) / 10,
+              };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.distance_km - b.distance_km)
+        : [];
+
+    const nearbyIds = nearbyCandidates.map((hostel) => hostel.id);
+    const [nearbyPhotos, nearbyRooms] = nearbyIds.length
+      ? await Promise.all([
+          q(
+            `SELECT id, hostel_id, image_url, caption
+             FROM hostel_photos WHERE hostel_id IN (${nearbyIds.map(() => "?").join(",")})
+             ORDER BY is_cover DESC, created_at ASC`,
+            nearbyIds
+          ),
+          q(
+            `SELECT id, hostel_id, room_type, total_rooms, beds_per_room,
+                    available_beds, monthly_rent, description
+             FROM hostel_rooms WHERE hostel_id IN (${nearbyIds.map(() => "?").join(",")})
+             ORDER BY created_at ASC`,
+            nearbyIds
+          ),
+        ])
+      : [[], []];
+
+    const nearbyPhotosByHostel = new Map();
+    for (const photo of nearbyPhotos) {
+      if (!nearbyPhotosByHostel.has(photo.hostel_id)) nearbyPhotosByHostel.set(photo.hostel_id, []);
+      nearbyPhotosByHostel.get(photo.hostel_id).push(photo);
+    }
+    const nearbyRoomsByHostel = new Map();
+    for (const room of nearbyRooms) {
+      if (!nearbyRoomsByHostel.has(room.hostel_id)) nearbyRoomsByHostel.set(room.hostel_id, []);
+      nearbyRoomsByHostel.get(room.hostel_id).push(room);
+    }
+
+    const nearbyHostels = nearbyCandidates
+      .map((h) => {
+        const photos = nearbyPhotosByHostel.get(h.id) || [];
+        const rooms = nearbyRoomsByHostel.get(h.id) || [];
+        const completion = evaluateHostelCompletion(
+          {
+            ...h,
+            lat: h.latitude,
+            lng: h.longitude,
+            status: "approved",
+          },
+          { rooms, photos, listing: { ...h, description: h.about } }
+        );
+        if (!completion.isLive) return null;
+
+        const amenitiesData = jsonOr(h.amenities, {});
+        const amenityItems = Array.isArray(amenitiesData)
+          ? amenitiesData
+          : [
+              ...(Array.isArray(amenitiesData.inRoom?.items) ? amenitiesData.inRoom.items : []),
+              ...(Array.isArray(amenitiesData.facilities) ? amenitiesData.facilities : []),
+            ];
+        const rents = rooms
+          .map((room) => num(room.monthly_rent))
+          .filter((rent) => rent != null);
+
+        return {
+          id: h.id,
+          name: h.name,
+          gender: genderOf(h.gender),
+          address: h.address,
+          phone: h.phone,
+          rooms: completion.counts.roomsCount,
+          rent_min: completion.counts.rentMin ?? (rents.length ? Math.min(...rents) : null),
+          rent_max: completion.counts.rentMax ?? (rents.length ? Math.max(...rents) : null),
+          amenities: amenityItems
+            .map((item) => (typeof item === "string" ? item : item?.name))
+            .filter(Boolean),
+          facilities: jsonOr(amenitiesData.facilities, []),
+          latitude: h.latitude,
+          longitude: h.longitude,
+          distance_km: h.distance_km,
+          ownership:
+            h.hostel_type === "university" ? "Campus Hostel" : "Private Hostel",
+          nearby: true,
+          cover_url: photos[0]?.image_url || null,
+          photos,
+          about: h.about,
+          floors: h.floors,
+          nearby_distance: h.nearby_distance,
+          owner_name: h.owner_name,
+          owner_contact: h.owner_contact,
+          warden_name: h.warden_name,
+          warden_contact: h.warden_contact,
+          hostel_rules: jsonOr(h.hostel_rules, []),
+          mess_details: jsonOr(h.mess_details, {}),
+          additional_fees: jsonOr(h.additional_fees, {}),
+          check_in_time: h.check_in_time,
+          check_out_time: h.check_out_time,
+          room_details: rooms,
+        };
+      })
+      .filter(Boolean);
+
+    return res.json([...hostels, ...ownerManagedHostels, ...nearbyHostels]);
   } catch (e) {
     console.error("listApprovedCampusHostels:", e.message);
     return res.status(500).json({

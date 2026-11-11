@@ -56,8 +56,10 @@ const createTransport = () => {
     port,
     secure: port === 465,
     pool: true,
-    maxConnections: 1,
-    maxMessages: Infinity,
+    // Allow several verification mails (e.g. multiple roles signing up at
+    // the same time) to use parallel connections instead of queueing.
+    maxConnections: 3,
+    maxMessages: 100,
     idleTimeout: 10 * 60 * 1000,
     connectionTimeout: 15000,
     greetingTimeout: 15000,
@@ -104,7 +106,19 @@ export const sendEmail = async ({ to, subject, text, html }) => {
     console.log(`📧 DEV override: sent to ${recipient} instead of ${original}`);
   }
 
-  return { recipient, messageId: result.messageId, overridden };
+  if (process.env.NODE_ENV !== "production") {
+    console.log(
+      `📧 Mail accepted: to=${recipient} accepted=${(result.accepted || []).length} rejected=${(result.rejected || []).length}`,
+    );
+  }
+
+  return {
+    recipient,
+    messageId: result.messageId,
+    overridden,
+    accepted: result.accepted || [],
+    rejected: result.rejected || [],
+  };
 };
 
 /**
