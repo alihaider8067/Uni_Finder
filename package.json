@@ -8,9 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "server": "node server/index.js",
-    "seed": "node server/seed.js",
-    "seed:profiles": "node src/backend/config/seedProfiles.js"
+    "server": "node src/backend/server.js",
+    "seed:profiles": "node src/backend/seeds/seedProfiles.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
